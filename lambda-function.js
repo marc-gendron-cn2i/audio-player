@@ -17,95 +17,101 @@ const {
 const s3 = new S3Client({ region: S3_BUCKET_REGION });
 const polly = new PollyClient({ region: AWS_REGION });
 
-// Découpe en chunks ≤ maxLength, en coupant sur "\n\n" si possible
+// Découpe en segments ≤ maxLength (3000)
 function chunkText(text, maxLength = 3000) {
-  const paragraphs = text.split("\n\n");
+  const paras = text.split("\n\n");
   const chunks = [];
-  let current = "";
-
-  for (const para of paragraphs) {
-    // si ce paragraphe seul dépasse, on le coupe brut
-    if (para.length > maxLength) {
-      if (current) {
-        chunks.push(current.trim());
-        current = "";
+  let curr = "";
+  for (const p of paras) {
+    if (p.length > maxLength) {
+      if (curr) { chunks.push(curr.trim()); curr = ""; }
+      for (let i = 0; i < p.length; i += maxLength) {
+        chunks.push(p.slice(i, i + maxLength));
       }
-      // couper le paragraphe en sous-chaînes de maxLength
-      for (let i = 0; i < para.length; i += maxLength) {
-        chunks.push(para.slice(i, i + maxLength));
-      }
-    } else if ((current + "\n\n" + para).length <= maxLength) {
-      current = current ? current + "\n\n" + para : para;
+    } else if ((curr + "\n\n" + p).length <= maxLength) {
+      curr = curr ? curr + "\n\n" + p : p;
     } else {
-      chunks.push(current.trim());
-      current = para;
+      chunks.push(curr.trim());
+      curr = p;
     }
   }
-  if (current) chunks.push(current.trim());
+  if (curr) chunks.push(curr.trim());
   return chunks;
 }
 
-// Convertit ReadableStream en Buffer
+// ReadableStream → Buffer
 async function streamToBuffer(stream) {
-  const chunks = [];
-  for await (const chunk of stream) {
-    chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+  const bufs = [];
+  for await (const c of stream) {
+    bufs.push(typeof c === "string" ? Buffer.from(c) : c);
   }
-  return Buffer.concat(chunks);
+  return Buffer.concat(bufs);
 }
 
 export const handler = async (event) => {
   try {
-    // 1. Récupérer l’article draft
+    // 1. Fetch draft
     const storyId = event.pathParameters.id;
-    const draftRes = await fetch(
+    const res = await fetch(
       `${ARC_API_BASE_URL}/draft/v1/story/${storyId}/revision/draft`,
       { headers: { Authorization: `Bearer ${ARC_API_TOKEN}` } }
     );
-    if (!draftRes.ok) throw new Error(`Arc XP fetch failed: ${draftRes.status}`);
-    const { ans, subheadlines } = await draftRes.json();
+    if (!res.ok) throw new Error(`Arc XP fetch failed: ${res.status}`);
+    const draft = await res.json();
 
-    // 2. Assembler le texte
-    const sub = subheadlines?.basic?.trim() || "";
-    const blocks = ans.content_elements
+    // 2. Extract ans + metadata
+    const ans = draft.ans;
+    const title       = ans.headlines?.basic?.trim() || "";
+    const author      = ans.credits?.by
+                         ?.map(b => b.referent?.id || b.referent?.text)
+                         .filter(Boolean)[0] || "";
+    const subheadline = ans.subheadlines?.basic?.trim() || "";
+
+    // 3. Build body blocks
+    const bodyBlocks = ans.content_elements
       .filter(el => el.type === "text" && typeof el.content === "string")
       .map(el => el.content.trim());
-    if (sub) blocks.unshift(sub);
-    const fullText = blocks.join("\n\n");
 
-    // 3. Découper en segments compatibles Polly
+    // 4. Assemble full text in desired order
+    const parts = [];
+    if (title)       parts.push(title);
+    if (author)      parts.push(`par ${author}`);
+    if (subheadline) parts.push(subheadline);
+    parts.push(...bodyBlocks);
+    const fullText = parts.join("\n\n");
+
+    // 5. Split into Polly-friendly chunks
     const segments = chunkText(fullText, 3000);
 
-    // 4. Générer et collecter tous les buffers audio
-    const audioBuffers = [];
-    for (const segment of segments) {
-      const { AudioStream } = await polly.send(new SynthesizeSpeechCommand({
-        Text: segment,
-        VoiceId: POLLY_VOICE_ID,
-        OutputFormat: "mp3",
-        Engine: "neural",
-        TextType: "text",
-        LexiconNames: ["LexiqueCN2i"]
-      }));
-      if (!AudioStream) throw new Error("Empty AudioStream from Polly");
-      const buf = await streamToBuffer(AudioStream);
-      audioBuffers.push(buf);
+    // 6. Generate audio for each chunk
+    const buffers = [];
+    for (const seg of segments) {
+      const { AudioStream } = await polly.send(
+        new SynthesizeSpeechCommand({
+          Text: seg,
+          VoiceId: POLLY_VOICE_ID,
+          OutputFormat: "mp3",
+          Engine: "neural",
+          TextType: "text",
+          LexiconNames: ["LexiqueCN2i"]
+        })
+      );
+      if (!AudioStream) throw new Error("Empty AudioStream");
+      buffers.push(await streamToBuffer(AudioStream));
     }
 
-    // 5. Concaténer tous les buffers en un seul MP3
-    const finalBuffer = Buffer.concat(audioBuffers);
-
-    // 6. Uploader le MP3 sur S3
+    // 7. Concat buffers & upload
+    const finalBuf = Buffer.concat(buffers);
     const key = `audio/${storyId}.mp3`;
     await s3.send(new PutObjectCommand({
       Bucket: AUDIO_BUCKET,
       Key: key,
-      Body: finalBuffer,
+      Body: finalBuf,
       ContentType: "audio/mpeg"
     }));
     const audioUrl = `https://${AUDIO_BUCKET}.s3.${S3_BUCKET_REGION}.amazonaws.com/${key}`;
 
-    // 7. Répondre avec l’URL
+    // 8. Return URL
     return {
       statusCode: 200,
       body: JSON.stringify({ success: true, audioUrl })
