@@ -1,0 +1,158 @@
+<!-- 1) Police Red Hat Display -->
+<link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@400;600&display=swap" rel="stylesheet">
+
+<!-- 2) STYLE général -->
+<style>
+/* ----- Teaser ----- */
+#audio-teaser{
+  display:inline-flex;align-items:center;gap:.4rem;
+  font-family:'Red Hat Display',sans-serif;font-size:1rem;
+  cursor:pointer;user-select:none;
+}
+#audio-teaser svg{width:20px;height:20px;flex:0 0 auto;}
+#duration{font-weight:600;}
+#cta     {font-weight:400;}
+
+/* ----- Lecteur personnalisé ----- */
+#audio-wrapper{display:inline-flex;align-items:center;gap:.75rem;max-width:600px;
+               font-family:sans-serif;margin-left:1rem;visibility:hidden;}
+#play-btn{padding:.5rem 1rem;font-size:1rem;cursor:pointer;}
+#seekbar,#volume{flex:1;}
+#time{font-size:.8rem;min-width:5rem;text-align:right;}
+/* Slider piste mince */
+#seekbar::-webkit-slider-runnable-track,
+#volume::-webkit-slider-runnable-track{height:4px;}
+/* ----- Messages d’erreur ----- */
+.msg{margin-top:.5rem;padding:.5rem 1rem;border:1px solid #c00;background:#fee;color:#c00;
+     font-family:sans-serif;display:none;}
+/* ----- Protection basique contre clic droit / sélection ----- */
+.no-export{user-select:none;-webkit-user-drag:none;}
+</style>
+
+<!-- 3) HTML -->
+<div class="no-export" id="audio-component">
+  <!-- Teaser -->
+  <div id="audio-teaser" title="Écouter l’article">
+    <!-- icône écouteurs -->
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 0 0-9 9v4a3 3 0 0 0 3 3h1a1 1 0 0 0 1-1v-6a1 1 0 0 0-1-1H6v-1a6 6 0 1 1 12 0v1h-1a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h1a3 3 0 0 0 3-3v-4a9 9 0 0 0-9-9z"/></svg>
+    <span id="duration">—</span>
+    <span id="cta">Écouter l’article</span>
+  </div>
+
+  <!-- Lecteur (caché jusqu’à permission) -->
+  <div id="audio-wrapper" class="no-export">
+    <button id="play-btn" disabled aria-label="Lire">Lire</button>
+    <input  id="seekbar" type="range" min="0" max="1" step="0.01" value="0" disabled aria-label="Avancement">
+    <span   id="time">0:00 / 0:00</span>
+    <input  id="volume" type="range" min="0" max="1" step="0.05" value="1" disabled aria-label="Volume">
+  </div>
+
+  <!-- Messages -->
+  <div id="msg-unavailable" class="msg" role="alert">
+    La version audio de cet article n'est pas disponible.
+  </div>
+  <div id="msg-plan" class="msg" role="alert">
+    Seuls les abonnés aux forfaits Le tout compris et L'ultime ont accès aux versions audio des articles.
+  </div>
+</div>
+
+<!-- 4) Howler.js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/howler/2.2.4/howler.min.js"
+        integrity="sha512-xTyQfhh0qDtO6zmuFyybC82UI9Y3hu17dyA54aLwL+Ng5frl6LsJG9G9HIX8ZwzXQPpfr+V8iW8+gISnxWG2sw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+
+  /* -------- helpers DOM -------- */
+  const $ = id => document.getElementById(id);
+  const teaser     = $('audio-teaser');
+  const wrapper    = $('audio-wrapper');
+  const playBtn    = $('play-btn');
+  const seekbar    = $('seekbar');
+  const volume     = $('volume');
+  const timeTxt    = $('time');
+  const msgUnavail = $('msg-unavailable');
+  const msgPlan    = $('msg-plan');
+
+  /* -------- désactive clic droit & copier -------- */
+  document.querySelectorAll('.no-export').forEach(el=>{
+    el.addEventListener('contextmenu',e=>e.preventDefault());
+    ['copy','cut'].forEach(evt=>el.addEventListener(evt,e=>e.preventDefault()));
+  });
+
+  /* -------- Récupération sûre de l’ID Arc/Fusion -------- */
+  let storyId=null;
+  if(typeof Fusion!=='undefined' && Fusion.globalContent && Fusion.globalContent._id){
+    storyId=Fusion.globalContent._id;
+  }
+
+  /* Sans ID ⇒ rien à faire */
+  if(!storyId){ msgUnavail.style.display='block'; return; }
+
+  const audioUrl=`https://versions-audio-ue1.s3.us-east-1.amazonaws.com/audio/${storyId}.mp3`;
+
+  /* -------- Créer un <audio> fantôme pour récupérer la durée -------- */
+  const meta = new Audio();
+  meta.preload='metadata';
+  meta.src=audioUrl;
+  meta.addEventListener('loadedmetadata',()=>{
+    const min=Math.max(1,Math.round(meta.duration/60));
+    $('duration').textContent=`${min} min`;
+  });
+  meta.addEventListener('error',()=>{ $('duration').textContent='—'; });
+
+  /* -------- Howler -------- */
+  const sound=new Howl({
+    src:[audioUrl],
+    html5:true,
+    preload:false,
+    onload     : initPlayer,
+    onloaderror: ()=>show(msgUnavail),
+    onplayerror: ()=>show(msgUnavail),
+    onplay     : ()=>{ playBtn.textContent='Pause'; playBtn.setAttribute('aria-label','Pause'); raf=requestAnimationFrame(sync); },
+    onpause    : ()=>{ playBtn.textContent='Lire';  playBtn.setAttribute('aria-label','Lire');  cancelAnimationFrame(raf); },
+    onend      : ()=>{ playBtn.textContent='Lire';  playBtn.setAttribute('aria-label','Lire');  cancelAnimationFrame(raf); }
+  });
+
+  /* -------- Logique abonnement (stub) -------- */
+  function userHasAudioAccess(){
+    // 🔧 À remplacer par votre test réel d’abonnement
+    return true;
+  }
+
+  /* -------- Gestion du clic sur le teaser -------- */
+  teaser.addEventListener('click',()=>{
+    /* priorité 1 : l’audio existe-t-il ? (Howler testera) */
+    /* priorité 2 : accès d’abonnement */
+    if(!userHasAudioAccess()){ return show(msgPlan); }
+
+    /* OK : on montre le lecteur et on lance le son */
+    wrapper.style.visibility='visible';
+    sound.play();
+  });
+
+  /* -------- Initialisation du lecteur -------- */
+  function initPlayer(){
+    playBtn.disabled=false; seekbar.disabled=false; volume.disabled=false;
+    timeTxt.textContent=`0:00 / ${format(sound.duration())}`;
+  }
+
+  /* -------- Contrôles -------- */
+  playBtn.addEventListener('click',()=>{ sound.playing()?sound.pause():sound.play(); });
+  volume .addEventListener('input',()=>Howler.volume(volume.value));
+  seekbar.addEventListener('input',()=>{ if(sound.state()==='loaded') sound.seek(seekbar.value*sound.duration()); });
+
+  /* -------- Sync position -------- */
+  let raf;
+  function sync(){
+    const pos=sound.seek()||0;
+    seekbar.value=pos/sound.duration();
+    timeTxt.textContent=`${format(pos)} / ${format(sound.duration())}`;
+    raf=requestAnimationFrame(sync);
+  }
+
+  /* -------- Utilitaires -------- */
+  function format(sec){const m=Math.floor(sec/60),s=Math.floor(sec%60).toString().padStart(2,'0');return`${m}:${s}`;}
+  function show(el){ el.style.display='block'; }  // affiche un seul message à la fois
+});
+</script>
