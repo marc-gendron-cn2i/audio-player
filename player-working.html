@@ -1,0 +1,117 @@
+<!-- Audio Player Widget — Bloc HTML PageBuilder -->
+<div id="audio-widget">
+  <div class="audio-trigger">
+    <svg class="icon headphone-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+      <path d="M12 2a10 10 0 00-10 10v7a3 3 0 003 3h2a2 2 0 002-2v-6a2 2 0 00-2-2H5v-2a7 7 0 0114 0v2h-2a2 2 0 00-2 2v6a2 2 0 002 2h2a3 3 0 003-3v-7A10 10 0 0012 2z"/>
+    </svg>
+    <span class="audio-duration">0:00</span>
+    <span class="audio-text">Écouter la version audio</span>
+  </div>
+  <div class="audio-player" style="display: none;">
+    <button class="play-pause" aria-label="Play/Pause">▶</button>
+    <span class="elapsed">0:00</span>
+    <input type="range" class="seek" min="0" max="100" value="0" step="0.1">
+    <span class="remaining">-0:00</span>
+  </div>
+  <audio id="audio-element" preload="metadata"></audio>
+</div>
+
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@400;700&display=swap');
+  #audio-widget { font-family:'Red Hat Display',sans-serif; }
+  .audio-trigger {
+    display:inline-flex;align-items:center;cursor:pointer;color:#000000;
+  }
+  .audio-trigger .icon {
+    width:24px;height:24px;fill:currentColor;margin-right:8px;
+  }
+  .audio-trigger .audio-duration { font-size:14px;margin-right:8px; }
+  .audio-trigger .audio-text     { font-size:16px; }
+  .audio-player {
+    display:inline-flex;align-items:center;margin-top:8px;
+  }
+  .audio-player .play-pause {
+    border:none;background:transparent;font-size:20px;cursor:pointer;margin-right:8px;
+  }
+  .audio-player .elapsed,
+  .audio-player .remaining { font-size:14px;margin:0 8px; }
+  .audio-player .seek { flex:1;cursor:pointer; }
+</style>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    // 1) Récupération du storyId
+    var storyId = (
+      (window.Fusion && Fusion.globalContent && Fusion.globalContent._id)
+      // fallback pour tests vous pouvez supprimer ensuite
+      || 'MVFJNNANPFBOJBWA6Y22RST7W4'
+    );
+    console.log('▶ storyId utilisé :', storyId);
+
+    if (!storyId) {
+      console.warn('Audio widget : pas de storyId, arrêt.');
+      return;
+    }
+
+    // 2) Construction de l’URL et sélection des éléments
+    var audioUrl       = 'https://versions-audio-ue1.s3.us-east-1.amazonaws.com/audio/' 
+                         + storyId + '.mp3';
+    var widget         = document.getElementById('audio-widget');
+    var trigger        = widget.querySelector('.audio-trigger');
+    var player         = widget.querySelector('.audio-player');
+    var audioEl        = widget.querySelector('#audio-element');
+    var durationLabel  = trigger.querySelector('.audio-duration');
+    var playBtn        = player.querySelector('.play-pause');
+    var elapsedLabel   = player.querySelector('.elapsed');
+    var remainingLabel = player.querySelector('.remaining');
+    var seekBar        = player.querySelector('.seek');
+
+    // 3) Chargement des métadonnées
+    audioEl.src = audioUrl;
+    audioEl.addEventListener('loadedmetadata', function() {
+      var d = Math.round(audioEl.duration);
+      durationLabel.textContent  = formatTime(d);
+      remainingLabel.textContent = '-' + formatTime(d);
+      seekBar.max                = d;
+    });
+
+    // 4) Mise à jour pendant la lecture
+    audioEl.addEventListener('timeupdate', function() {
+      var t = Math.floor(audioEl.currentTime);
+      elapsedLabel.textContent   = formatTime(t);
+      remainingLabel.textContent = '-' + formatTime(Math.round(audioEl.duration - t));
+      seekBar.value              = t;
+    });
+
+    // 5) Seek via la barre
+    seekBar.addEventListener('input', function() {
+      audioEl.currentTime = this.value;
+    });
+
+    // 6) Bouton play/pause
+    playBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      if (audioEl.paused) {
+        audioEl.play();
+        playBtn.textContent = '❚❚';
+      } else {
+        audioEl.pause();
+        playBtn.textContent = '▶';
+      }
+    });
+
+    // 7) Clic sur trigger → déploiement + lancement
+    trigger.addEventListener('click', function() {
+      trigger.style.display = 'none';
+      player.style.display  = 'inline-flex';
+      audioEl.play();
+      playBtn.textContent = '❚❚';
+    });
+
+    // helper mm:ss
+    function formatTime(sec) {
+      var m = Math.floor(sec/60), s = sec % 60;
+      return m + ':' + (s < 10 ? '0'+s : s);
+    }
+  });
+</script>
