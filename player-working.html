@@ -1,165 +1,137 @@
-<!-- Audio Player Widget — Bloc HTML PageBuilder -->
-<div id="audio-widget">
-  <div class="audio-trigger">
-    <svg class="icon headphone-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-      <path d="M12 2a10 10 0 00-10 10v7a3 3 0 003 3h2a2 2 0 002-2v-6a2 2 0 00-2-2H5v-2a7 7 0 0114 0v2h-2a2 2 0 00-2 2v6a2 2 0 002 2h2a3 3 0 003-3v-7A10 10 0 0012 2z"/>
-    </svg>
-    <span class="audio-duration">0:00</span>
-    <span class="audio-text">Écouter la version audio</span>
-  </div>
-  <div class="audio-player" style="display: none;">
-    <button class="play-pause" aria-label="Play/Pause">▶</button>
-    <span class="elapsed">0:00</span>
-    <input type="range" class="seek" min="0" max="100" value="0" step="0.1">
-    <span class="remaining">-0:00</span>
-  </div>
-  <audio id="audio-element" preload="metadata"></audio>
-</div>
+// index.js
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import {
+  PollyClient,
+  SynthesizeSpeechCommand
+} from "@aws-sdk/client-polly";
 
-<style>
-  @import url('https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@400;700&display=swap');
+const {
+  ARC_API_BASE_URL,
+  ARC_API_TOKEN,
+  AUDIO_BUCKET,
+  S3_BUCKET_REGION,
+  POLLY_VOICE_ID,
+  AWS_REGION
+} = process.env;
 
-  /* Conteneur fixe pour éviter tout saut */
-  #audio-widget {
-    font-family: 'Red Hat Display', sans-serif;
-    position: relative;
-    height: 28px;            /* ajuste selon la hauteur de vos icônes/textes */
-    line-height: 28px;
-  }
+const s3 = new S3Client({ region: S3_BUCKET_REGION });
+const polly = new PollyClient({ region: AWS_REGION });
 
-  /* Texte et icônes en noir, monospace pour les chiffres */
-  #audio-widget .audio-trigger,
-  #audio-widget .audio-player {
-    color: #000;
-    position: absolute;
-    top: 0;
-    left: 0;
-  }
-  .audio-trigger {
-    display: inline-flex;
-    align-items: center;
-    cursor: pointer;
-  }
-  .audio-trigger.error { cursor: default; }
+// Fonction utilitaire pour retirer les balises HTML
+function stripTags(text) {
+  return text.replace(/<[^>]*>/g, "");
+}
 
-  .audio-trigger .icon {
-    width: 24px;
-    height: 24px;
-    fill: currentColor;
-    margin-right: 8px;
-  }
-
-  /* Largeur fixe pour éviter le glissement horizontal */
-  .audio-duration,
-  .elapsed,
-  .remaining {
-    display: inline-block;
-    width: 4ch;             /* 4 caractères : mm:ss ou -mm:ss */
-    text-align: right;
-    font-family: monospace;
-    font-size: 14px;
-    margin-right: 8px;
-  }
-
-  .audio-text {
-    font-size: 16px;
-  }
-
-  .audio-player {
-    display: inline-flex;
-    align-items: center;
-    /* plus de margin-top : on superpose exactement sur le trigger */
-  }
-  .audio-player .play-pause {
-    border: none;
-    background: transparent;
-    font-size: 20px;
-    cursor: pointer;
-    margin-right: 8px;
-  }
-  .audio-player .seek {
-    flex: 1;
-    cursor: pointer;
-    accent-color: #000;
-  }
-
-  /* Style message d’erreur si pas de fichier audio */
-  .audio-trigger.error {
-    color: #D51D2C !important;
-  }
-</style>
-
-<script>
-  document.addEventListener('DOMContentLoaded', function() {
-    var storyId = (window.Fusion?.globalContent?._id) || 'MVFJNNANPFBOJBWA6Y22RST7W4';
-    console.log('▶ storyId utilisé :', storyId);
-    if (!storyId) return;
-
-    var audioUrl = 'https://versions-audio-ue1.s3.us-east-1.amazonaws.com/audio/' + storyId + '.mp3';
-    var widget    = document.getElementById('audio-widget');
-    var trigger   = widget.querySelector('.audio-trigger');
-    var player    = widget.querySelector('.audio-player');
-    var audioEl   = widget.querySelector('#audio-element');
-    var durationL = trigger.querySelector('.audio-duration');
-    var playBtn   = player.querySelector('.play-pause');
-    var elapsedL  = player.querySelector('.elapsed');
-    var remainingL= player.querySelector('.remaining');
-    var seekBar   = player.querySelector('.seek');
-
-    // Erreur si pas de mp3
-    audioEl.addEventListener('error', function() {
-      durationL.style.display = 'none';
-      trigger.classList.add('error');
-      trigger.querySelector('.audio-text').textContent =
-        "La version audio n'est pas disponible";
-      trigger.style.pointerEvents = 'none';
-    });
-
-    // Chargement des métadonnées
-    audioEl.src = audioUrl;
-    audioEl.addEventListener('loadedmetadata', function() {
-      var d = Math.round(audioEl.duration);
-      durationL.textContent   = formatTime(d);
-      remainingL.textContent  = '-' + formatTime(d);
-      seekBar.max             = d;
-    });
-
-    // Mise à jour pendant la lecture
-    audioEl.addEventListener('timeupdate', function() {
-      var t = Math.floor(audioEl.currentTime);
-      elapsedL.textContent    = formatTime(t);
-      remainingL.textContent  = '-' + formatTime(Math.round(audioEl.duration - t));
-      seekBar.value           = t;
-    });
-
-    // Seek
-    seekBar.addEventListener('input', function() {
-      audioEl.currentTime = this.value;
-    });
-
-    // Play/Pause
-    playBtn.addEventListener('click', function(e) {
-      e.stopPropagation();
-      if (audioEl.paused) {
-        audioEl.play();
-        playBtn.textContent = '❚❚';
-      } else {
-        audioEl.pause();
-        playBtn.textContent = '▶';
+// Découpe en segments ≤ maxLength (3000)
+function chunkText(text, maxLength = 3000) {
+  const paras = text.split("\n\n");
+  const chunks = [];
+  let curr = "";
+  for (const p of paras) {
+    if (p.length > maxLength) {
+      if (curr) { chunks.push(curr.trim()); curr = ""; }
+      for (let i = 0; i < p.length; i += maxLength) {
+        chunks.push(p.slice(i, i + maxLength));
       }
-    });
-
-    // Clic pour déployer/le lancer
-    trigger.addEventListener('click', function() {
-      trigger.style.display = 'none';
-      player.style.display  = 'inline-flex';
-      audioEl.play();
-      playBtn.textContent = '❚❚';
-    });
-
-    function formatTime(sec) {
-      var m = Math.floor(sec/60), s = sec % 60;
-      return m + ':' + (s < 10 ? '0'+s : s);
+    } else if ((curr + "\n\n" + p).length <= maxLength) {
+      curr = curr ? curr + "\n\n" + p : p;
+    } else {
+      chunks.push(curr.trim());
+      curr = p;
     }
-  });
-</script>
+  }
+  if (curr) chunks.push(curr.trim());
+  return chunks;
+}
+
+// ReadableStream → Buffer
+async function streamToBuffer(stream) {
+  const bufs = [];
+  for await (const c of stream) {
+    bufs.push(typeof c === "string" ? Buffer.from(c) : c);
+  }
+  return Buffer.concat(bufs);
+}
+
+export const handler = async (event) => {
+  try {
+    // 1. Fetch draft
+    const storyId = event.pathParameters.id;
+    const res = await fetch(
+      `${ARC_API_BASE_URL}/draft/v1/story/${storyId}/revision/draft`,
+      { headers: { Authorization: `Bearer ${ARC_API_TOKEN}` } }
+    );
+    if (!res.ok) throw new Error(`Arc XP fetch failed: ${res.status}`);
+    const draft = await res.json();
+
+    // 2. Extract ans + metadata
+    const ans = draft.ans;
+    const titleRaw       = ans.headlines?.basic || "";
+    const authorRaw      = ans.credits?.by
+                           ?.map(b => b.referent?.id || b.referent?.text)
+                           .filter(Boolean)[0] || "";
+    const subheadlineRaw = ans.subheadlines?.basic || "";
+
+    // 3. Strip HTML
+    const title       = stripTags(titleRaw.trim());
+    const author      = stripTags(authorRaw.trim());
+    const subheadline = stripTags(subheadlineRaw.trim());
+
+    // 4. Build body blocks, stripping HTML
+    const bodyBlocks = ans.content_elements
+      .filter(el => el.type === "text" && typeof el.content === "string")
+      .map(el => stripTags(el.content.trim()));
+
+    // 5. Assemble full text in desired order
+    const parts = [];
+    if (title)       parts.push(title);
+    if (author)      parts.push(`par ${author}`);
+    if (subheadline) parts.push(subheadline);
+    parts.push(...bodyBlocks);
+    const fullText = parts.join("\n\n");
+
+    // 6. Split into Polly-friendly chunks
+    const segments = chunkText(fullText, 3000);
+
+    // 7. Generate audio for each chunk
+    const buffers = [];
+    for (const seg of segments) {
+      const { AudioStream } = await polly.send(
+        new SynthesizeSpeechCommand({
+          Text: seg,
+          VoiceId: POLLY_VOICE_ID,
+          OutputFormat: "mp3",
+          Engine: "neural",
+          TextType: "text",
+          LexiconNames: ["LexiqueCN2i"]
+        })
+      );
+      if (!AudioStream) throw new Error("Empty AudioStream");
+      buffers.push(await streamToBuffer(AudioStream));
+    }
+
+    // 8. Concatenate & upload
+    const finalBuf = Buffer.concat(buffers);
+    const key = `audio/${storyId}.mp3`;
+    await s3.send(new PutObjectCommand({
+      Bucket: AUDIO_BUCKET,
+      Key: key,
+      Body: finalBuf,
+      ContentType: "audio/mpeg"
+    }));
+    const audioUrl = `https://${AUDIO_BUCKET}.s3.${S3_BUCKET_REGION}.amazonaws.com/${key}`;
+
+    // 9. Return URL
+    return {
+      statusCode: 200,
+      body: JSON.stringify({ success: true, audioUrl })
+    };
+
+  } catch (err) {
+    console.error(err);
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: err.message })
+    };
+  }
+};
