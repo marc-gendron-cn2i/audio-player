@@ -19,7 +19,6 @@
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@400;700&display=swap');
 
-  /* Conteneur fixe pour éviter tout saut */
   #audio-widget {
     font-family: 'Red Hat Display', sans-serif;
     position: relative;
@@ -27,7 +26,6 @@
     line-height: 28px;
   }
 
-  /* Icône et texte en noir par défaut */
   #audio-widget .audio-trigger,
   #audio-widget .audio-player {
     position: absolute;
@@ -48,21 +46,20 @@
     margin-right: 8px;
   }
 
-  /* Largeur fixe pour mm:ss */
+  /* Chiffres en Red Hat Display */
   .audio-duration,
   .elapsed,
   .remaining {
     display: inline-block;
     width: 4ch;
     text-align: right;
-    font-family: monospace;
+    font-family: 'Red Hat Display', sans-serif;
     font-size: 14px;
     margin-right: 8px;
   }
 
   .audio-text {
     font-size: 16px;
-    /* héritera de la couleur noire, sauf override en JS */
   }
 
   .audio-player {
@@ -85,12 +82,10 @@
 
 <script>
   document.addEventListener('DOMContentLoaded', function() {
-    // 1) Récupération du storyId
     var storyId = (window.Fusion?.globalContent?._id) || 'MVFJNNANPFBOJBWA6Y22RST7W4';
     if (!storyId) return;
     var audioUrl = 'https://versions-audio-ue1.s3.us-east-1.amazonaws.com/audio/' + storyId + '.mp3';
 
-    // 2) Sélection des éléments
     var widget        = document.getElementById('audio-widget');
     var trigger       = widget.querySelector('.audio-trigger');
     var player        = widget.querySelector('.audio-player');
@@ -102,8 +97,8 @@
     var seekBar       = player.querySelector('.seek');
     var textEl        = trigger.querySelector('.audio-text');
 
-    // 3) Précharge les métadonnées
     audioEl.src = audioUrl;
+
     audioEl.addEventListener('loadedmetadata', function() {
       var d = Math.round(audioEl.duration);
       durationL.textContent   = formatTime(d);
@@ -111,7 +106,6 @@
       seekBar.max             = d;
     });
 
-    // 4) Timeupdate
     audioEl.addEventListener('timeupdate', function() {
       var t = Math.floor(audioEl.currentTime);
       elapsedL.textContent    = formatTime(t);
@@ -119,12 +113,10 @@
       seekBar.value           = t;
     });
 
-    // 5) Seek
     seekBar.addEventListener('input', function() {
       audioEl.currentTime = this.value;
     });
 
-    // 6) Play/pause bouton
     playBtn.addEventListener('click', function(e) {
       e.stopPropagation();
       if (audioEl.paused) {
@@ -136,15 +128,12 @@
       }
     });
 
-    // 7) Clic sur trigger
     trigger.addEventListener('click', function() {
       audioEl.play().then(function() {
-        // succès → afficher le player
         trigger.style.display = 'none';
         player.style.display  = 'inline-flex';
         playBtn.textContent   = '❚❚';
       }).catch(function() {
-        // échec → message rouge seulement sur le texte
         durationL.style.display = 'none';
         textEl.textContent      = "La version audio de l'article n'est pas disponible";
         textEl.style.color      = "#D51D2C";
@@ -152,7 +141,6 @@
       });
     });
 
-    // Helper mm:ss
     function formatTime(sec) {
       var m = Math.floor(sec/60), s = sec % 60;
       return m + ':' + (s < 10 ? '0'+s : s);
