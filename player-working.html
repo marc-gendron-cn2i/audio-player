@@ -18,44 +18,79 @@
 
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@400;700&display=swap');
-  #audio-widget { font-family:'Red Hat Display',sans-serif; }
+
+  #audio-widget { font-family: 'Red Hat Display', sans-serif; }
+
+  /* Texte et icônes en noir */
+  #audio-widget .audio-trigger,
+  #audio-widget .audio-player {
+    color: #000000;
+  }
+
   .audio-trigger {
-    display:inline-flex;align-items:center;cursor:pointer;color:#000000;
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
   }
   .audio-trigger .icon {
-    width:24px;height:24px;fill:currentColor;margin-right:8px;
+    width: 24px;
+    height: 24px;
+    fill: currentColor;
+    margin-right: 8px;
   }
-  .audio-trigger .audio-duration { font-size:14px;margin-right:8px; }
-  .audio-trigger .audio-text     { font-size:16px; }
+  .audio-trigger .audio-duration {
+    font-size: 14px;
+    margin-right: 8px;
+  }
+  .audio-trigger .audio-text {
+    font-size: 16px;
+  }
+
   .audio-player {
-    display:inline-flex;align-items:center;margin-top:8px;
+    display: inline-flex;
+    align-items: center;
+    margin-top: 8px;
   }
   .audio-player .play-pause {
-    border:none;background:transparent;font-size:20px;cursor:pointer;margin-right:8px;
+    border: none;
+    background: transparent;
+    font-size: 20px;
+    cursor: pointer;
+    margin-right: 8px;
   }
   .audio-player .elapsed,
-  .audio-player .remaining { font-size:14px;margin:0 8px; }
-  .audio-player .seek { flex:1;cursor:pointer; }
+  .audio-player .remaining {
+    font-size: 14px;
+    margin: 0 8px;
+  }
+  .audio-player .seek {
+    flex: 1;
+    cursor: pointer;
+    /* Chrome, Edge, Firefox récent */
+    accent-color: #000000;
+  }
+
+  /* Style message d’erreur si pas de fichier audio */
+  .audio-trigger.error {
+    /* tout passe en rouge */
+    color: #D51D2C !important;
+    cursor: default;
+  }
 </style>
 
 <script>
   document.addEventListener('DOMContentLoaded', function() {
-    // 1) Récupération du storyId
+    // 1) Récupère storyId (fallback pour tests)
     var storyId = (
       (window.Fusion && Fusion.globalContent && Fusion.globalContent._id)
-      // fallback pour tests vous pouvez supprimer ensuite
       || 'MVFJNNANPFBOJBWA6Y22RST7W4'
     );
     console.log('▶ storyId utilisé :', storyId);
+    if (!storyId) return console.warn('Audio widget : pas de storyId.');
 
-    if (!storyId) {
-      console.warn('Audio widget : pas de storyId, arrêt.');
-      return;
-    }
-
-    // 2) Construction de l’URL et sélection des éléments
+    // 2) Prépare URL et éléments
     var audioUrl       = 'https://versions-audio-ue1.s3.us-east-1.amazonaws.com/audio/' 
-                         + storyId + '.mp3';
+                          + storyId + '.mp3';
     var widget         = document.getElementById('audio-widget');
     var trigger        = widget.querySelector('.audio-trigger');
     var player         = widget.querySelector('.audio-player');
@@ -66,7 +101,19 @@
     var remainingLabel = player.querySelector('.remaining');
     var seekBar        = player.querySelector('.seek');
 
-    // 3) Chargement des métadonnées
+    // 3) Gestion d’erreur si pas de mp3
+    audioEl.addEventListener('error', function() {
+      console.warn('Audio widget: fichier introuvable pour', storyId);
+      // Masquer la durée, afficher message rouge
+      durationLabel.style.display = 'none';
+      trigger.classList.add('error');
+      trigger.querySelector('.audio-text').textContent = 
+        "La version audio n'est pas disponible";
+      // Désactive le clic
+      trigger.style.pointerEvents = 'none';
+    });
+
+    // 4) Chargement des métadonnées
     audioEl.src = audioUrl;
     audioEl.addEventListener('loadedmetadata', function() {
       var d = Math.round(audioEl.duration);
@@ -75,7 +122,7 @@
       seekBar.max                = d;
     });
 
-    // 4) Mise à jour pendant la lecture
+    // 5) Mise à jour pendant la lecture
     audioEl.addEventListener('timeupdate', function() {
       var t = Math.floor(audioEl.currentTime);
       elapsedLabel.textContent   = formatTime(t);
@@ -83,12 +130,12 @@
       seekBar.value              = t;
     });
 
-    // 5) Seek via la barre
+    // 6) Seek via la barre
     seekBar.addEventListener('input', function() {
       audioEl.currentTime = this.value;
     });
 
-    // 6) Bouton play/pause
+    // 7) Bouton play/pause
     playBtn.addEventListener('click', function(e) {
       e.stopPropagation();
       if (audioEl.paused) {
@@ -100,7 +147,7 @@
       }
     });
 
-    // 7) Clic sur trigger → déploiement + lancement
+    // 8) Clic sur trigger → déploiement + lancement
     trigger.addEventListener('click', function() {
       trigger.style.display = 'none';
       player.style.display  = 'inline-flex';
@@ -108,7 +155,7 @@
       playBtn.textContent = '❚❚';
     });
 
-    // helper mm:ss
+    // Helper mm:ss
     function formatTime(sec) {
       var m = Math.floor(sec/60), s = sec % 60;
       return m + ':' + (s < 10 ? '0'+s : s);
