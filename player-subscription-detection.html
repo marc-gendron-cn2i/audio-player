@@ -23,18 +23,20 @@
     position: relative;
     line-height: 28px;
     font-family: 'Red Hat Display', sans-serif;
-padding-bottom: 24px; /* espace sous l'élément */
-    margin-bottom: 24px; /* espace sous l'élément */
+    padding-bottom: 1rem;  /* plus d’espace interne */
+    margin-bottom: 1rem;   /* plus d’espace sous le widget */
   }
-  .audio-trigger, .audio-player {
-    position: absolute;
-    top: 0;
-    left: 0;
-    color: #000;
-  }
-  .audio-trigger {
+
+  /* Retour en flux normal */
+  .audio-trigger,
+  .audio-player {
+    position: static;
     display: inline-flex;
     align-items: center;
+    color: #000;
+  }
+
+  .audio-trigger {
     cursor: pointer;
   }
   .audio-trigger .icon {
@@ -43,20 +45,17 @@ padding-bottom: 24px; /* espace sous l'élément */
     fill: currentColor;
     margin-right: 8px;
   }
-  .audio-duration, .elapsed, .remaining {
+  .audio-duration,
+  .elapsed,
+  .remaining {
     display: inline-block;
     width: 4ch;
     text-align: right;
-    font-family: 'Red Hat Display', sans-serif;
     font-size: 14px;
     margin-right: 8px;
   }
   .audio-text {
     font-size: 16px;
-  }
-  .audio-player {
-    display: inline-flex;
-    align-items: center;
   }
   .play-pause {
     border: none;
@@ -86,7 +85,6 @@ document.addEventListener('DOMContentLoaded', function() {
     "Le numérique et papier tout compris"
   ];
 
-  // Sélecteurs
   var widget    = document.getElementById('audio-widget');
   var trigger   = widget.querySelector('.audio-trigger');
   var player    = widget.querySelector('.audio-player');
@@ -103,13 +101,11 @@ document.addEventListener('DOMContentLoaded', function() {
   if (!storyId) return;
   audioEl.src = 'https://versions-audio-ue1.s3.us-east-1.amazonaws.com/audio/' + storyId + '.mp3';
 
-  // Flag de disponibilité audio
   var audioAvailable = true;
   audioEl.addEventListener('error', function() {
     audioAvailable = false;
   });
 
-  // Métadonnées & progression
   audioEl.addEventListener('loadedmetadata', function() {
     var d = Math.round(audioEl.duration);
     durationL.textContent   = formatTime(d);
@@ -124,7 +120,6 @@ document.addEventListener('DOMContentLoaded', function() {
     seekBar.value           = t;
   });
 
-  // Contrôle seek et play/pause
   seekBar.addEventListener('input', function() {
     audioEl.currentTime = this.value;
   });
@@ -138,7 +133,7 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 
   trigger.addEventListener('click', function() {
-    // Détection du forfait via dataLayer
+    // Récup plan via dataLayer
     var plan = null;
     if (window.dataLayer && Array.isArray(window.dataLayer)) {
       for (var i = window.dataLayer.length - 1; i >= 0; i--) {
@@ -146,15 +141,11 @@ document.addEventListener('DOMContentLoaded', function() {
         if (evt && evt.subscription_plan) { plan = evt.subscription_plan; break; }
       }
     }
-    // Fallback DOM
     if (!plan) {
       var disp = document.getElementById('subscription-plan-display');
       if (disp) plan = disp.textContent.replace(/^Forfait\s*:\s*/, '');
     }
-    plan = (plan || 'No subscription plan found').replace(/[‘’]/g, "'");
-    console.log('Detected plan:', plan);
-
-    // Vérifie abonnement
+    plan = (plan || '').replace(/[‘’]/g, "'");
     if (!allowed.includes(plan)) {
       var linkUrl = window.location.origin +
         '/abonnement?utm_campaign=link-lecteur-audio-' + storyId;
@@ -166,16 +157,12 @@ document.addEventListener('DOMContentLoaded', function() {
       durationL.style.display = 'none';
       return;
     }
-
-    // Vérifie disponibilité audio
     if (!audioAvailable) {
       textEl.textContent      = "La version audio de l'article n'est pas disponible";
       textEl.style.color      = "#D51D2C";
       durationL.style.display = 'none';
       return;
     }
-
-    // Lecture autorisée
     audioEl.play().then(function() {
       trigger.style.display  = 'none';
       player.style.display   = 'inline-flex';
