@@ -19,6 +19,7 @@
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@400;700&display=swap');
 
+  /* Conteneur fixe pour éviter tout saut */
   #audio-widget {
     font-family: 'Red Hat Display', sans-serif;
     position: relative;
@@ -26,6 +27,7 @@
     line-height: 28px;
   }
 
+  /* Icône et textes en noir par défaut */
   #audio-widget .audio-trigger,
   #audio-widget .audio-player {
     position: absolute;
@@ -46,7 +48,7 @@
     margin-right: 8px;
   }
 
-  /* Chiffres en Red Hat Display */
+  /* Chiffres en Red Hat Display, largeur fixe */
   .audio-duration,
   .elapsed,
   .remaining {
@@ -82,23 +84,27 @@
 
 <script>
   document.addEventListener('DOMContentLoaded', function() {
+    // Récupération du storyId (fallback pour tests)
     var storyId = (window.Fusion?.globalContent?._id) || 'MVFJNNANPFBOJBWA6Y22RST7W4';
     if (!storyId) return;
     var audioUrl = 'https://versions-audio-ue1.s3.us-east-1.amazonaws.com/audio/' + storyId + '.mp3';
 
-    var widget        = document.getElementById('audio-widget');
-    var trigger       = widget.querySelector('.audio-trigger');
-    var player        = widget.querySelector('.audio-player');
-    var audioEl       = widget.querySelector('#audio-element');
-    var durationL     = trigger.querySelector('.audio-duration');
-    var playBtn       = player.querySelector('.play-pause');
-    var elapsedL      = player.querySelector('.elapsed');
-    var remainingL    = player.querySelector('.remaining');
-    var seekBar       = player.querySelector('.seek');
-    var textEl        = trigger.querySelector('.audio-text');
+    // Sélection des éléments
+    var widget    = document.getElementById('audio-widget');
+    var trigger   = widget.querySelector('.audio-trigger');
+    var player    = widget.querySelector('.audio-player');
+    var audioEl   = widget.querySelector('#audio-element');
+    var durationL = trigger.querySelector('.audio-duration');
+    var playBtn   = player.querySelector('.play-pause');
+    var elapsedL  = player.querySelector('.elapsed');
+    var remainingL= player.querySelector('.remaining');
+    var seekBar   = player.querySelector('.seek');
+    var textEl    = trigger.querySelector('.audio-text');
 
+    // Précharge l'URL sans déclencher d'erreur immédiate
     audioEl.src = audioUrl;
 
+    // Chargement des métadonnées
     audioEl.addEventListener('loadedmetadata', function() {
       var d = Math.round(audioEl.duration);
       durationL.textContent   = formatTime(d);
@@ -106,6 +112,7 @@
       seekBar.max             = d;
     });
 
+    // Mise à jour pendant la lecture
     audioEl.addEventListener('timeupdate', function() {
       var t = Math.floor(audioEl.currentTime);
       elapsedL.textContent    = formatTime(t);
@@ -113,10 +120,12 @@
       seekBar.value           = t;
     });
 
+    // Seek via la barre
     seekBar.addEventListener('input', function() {
       audioEl.currentTime = this.value;
     });
 
+    // Bouton play/pause
     playBtn.addEventListener('click', function(e) {
       e.stopPropagation();
       if (audioEl.paused) {
@@ -128,19 +137,24 @@
       }
     });
 
+    // Clic initial pour lancer ou afficher message d'erreur
     trigger.addEventListener('click', function() {
       audioEl.play().then(function() {
+        // Lecture OK → affiche le player
         trigger.style.display = 'none';
         player.style.display  = 'inline-flex';
         playBtn.textContent   = '❚❚';
       }).catch(function() {
+        // Échec lecture → on affiche le message seulement
+        // conserve l'icône, mais texte en rouge
+        textEl.textContent   = "La version audio de l'article n'est pas disponible";
+        textEl.style.color   = "#D51D2C";
         durationL.style.display = 'none';
-        textEl.textContent      = "La version audio de l'article n'est pas disponible";
-        textEl.style.color      = "#D51D2C";
         trigger.style.pointerEvents = 'none';
       });
     });
 
+    // Helper mm:ss
     function formatTime(sec) {
       var m = Math.floor(sec/60), s = sec % 60;
       return m + ':' + (s < 10 ? '0'+s : s);
