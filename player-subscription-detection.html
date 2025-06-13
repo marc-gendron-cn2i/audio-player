@@ -1,42 +1,4 @@
-<!-- 1) Script de détection du forfait (à placer avant les appels fetch Poool) -->
-<script>
-(function() {
-  var originalFetch = window.fetch;
-  var knownPlans = [
-    "L'essentiel",
-    "L'essentiel numérique",
-    "Le tout compris",
-    "Le numérique tout compris",
-    "L'ultime",
-    "Le numérique et papier tout compris"
-  ];
-  window.subscriptionPlan = 'Rien détecté';
-  function displayPlan(plan) {
-    window.subscriptionPlan = plan;
-    // (optionnel) affichage pour debug
-    console.info('[Forfait détecté] ', plan);
-  }
-  document.addEventListener('DOMContentLoaded', function() {
-    displayPlan(window.subscriptionPlan);
-  });
-  window.fetch = function(input, init) {
-    var url = typeof input === 'string' ? input : input.url;
-    if (url.includes('api.poool.fr/api/v3/engage/elements')) {
-      try {
-        var body = init && init.body;
-        var filters = body ? JSON.parse(body).filters || [] : [];
-        var plan = filters.find(f => knownPlans.includes(f));
-        displayPlan(plan || 'Rien détecté');
-      } catch(e) {
-        console.warn('Détection du forfait a échoué', e);
-      }
-    }
-    return originalFetch.apply(this, arguments);
-  };
-})();
-</script>
-
-<!-- 2) Widget audio avec contrôle d’accès par abonnement -->
+<!-- Widget audio avec contrôle d’accès (utilise Google Tag Manager dataLayer) -->
 <div id="audio-widget">
   <div class="audio-trigger">
     <svg class="icon headphone-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
@@ -56,15 +18,62 @@
 
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@400;700&display=swap');
-  #audio-widget { position: relative; height: 28px; line-height: 28px; font-family: 'Red Hat Display', sans-serif; }
-  .audio-trigger, .audio-player { position: absolute; top: 0; left: 0; color: #000; }
-  .audio-trigger { display: inline-flex; align-items: center; cursor: pointer; }
-  .audio-trigger .icon { width: 24px; height: 24px; fill: currentColor; margin-right: 8px; }
-  .audio-duration, .elapsed, .remaining { display: inline-block; width: 4ch; text-align: right; font-family: 'Red Hat Display', sans-serif; font-size: 14px; margin-right: 8px; }
-  .audio-text { font-size: 16px; }
-  .audio-player { display: inline-flex; align-items: center; }
-  .play-pause { border: none; background: transparent; font-size: 20px; cursor: pointer; margin-right: 8px; }
-  .seek { flex: 1; cursor: pointer; accent-color: #000; }
+
+  #audio-widget {
+    position: relative;
+    line-height: 28px;
+    font-family: 'Red Hat Display', sans-serif;
+    padding-bottom: 24px; /* espace si multiline */
+  }
+  .audio-trigger, .audio-player {
+    position: absolute;
+    top: 0;
+    left: 0;
+    color: #000;
+  }
+  .audio-trigger {
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+  }
+  .audio-trigger .icon {
+    width: 24px;
+    height: 24px;
+    fill: currentColor;
+    margin-right: 8px;
+  }
+  .audio-duration, .elapsed, .remaining {
+    display: inline-block;
+    width: 4ch;
+    text-align: right;
+    font-family: 'Red Hat Display', sans-serif;
+    font-size: 14px;
+    margin-right: 8px;
+  }
+  .audio-text {
+    font-size: 16px;
+  }
+  .audio-player {
+    display: inline-flex;
+    align-items: center;
+  }
+  .play-pause {
+    border: none;
+    background: transparent;
+    font-size: 20px;
+    cursor: pointer;
+    margin-right: 8px;
+  }
+  .seek {
+    flex: 1;
+    cursor: pointer;
+    accent-color: #000;
+  }
+  .audio-text a {
+    color: #D51D2C;
+    font-weight: bold;
+    text-decoration: underline;
+  }
 </style>
 
 <script>
@@ -75,12 +84,8 @@ document.addEventListener('DOMContentLoaded', function() {
     "Le numérique tout compris",
     "Le numérique et papier tout compris"
   ];
-  var plan = window.subscriptionPlan || 'Rien détecté';
 
-  var storyId   = (window.Fusion?.globalContent?._id) || '';
-  if (!storyId) return;
-  var audioUrl  = 'https://versions-audio-ue1.s3.us-east-1.amazonaws.com/audio/' + storyId + '.mp3';
-
+  // Sélecteurs
   var widget    = document.getElementById('audio-widget');
   var trigger   = widget.querySelector('.audio-trigger');
   var player    = widget.querySelector('.audio-player');
@@ -92,12 +97,17 @@ document.addEventListener('DOMContentLoaded', function() {
   var seekBar   = player.querySelector('.seek');
   var textEl    = trigger.querySelector('.audio-text');
 
-  audioEl.src = audioUrl;
+  // Récupère storyId
+  var storyId = window.Fusion?.globalContent?._id || '';
+  if (!storyId) return;
+  audioEl.src = 'https://versions-audio-ue1.s3.us-east-1.amazonaws.com/audio/' + storyId + '.mp3';
+
+  // Métadonnées & progression
   audioEl.addEventListener('loadedmetadata', function() {
     var d = Math.round(audioEl.duration);
-    durationL.textContent  = formatTime(d);
-    remainingL.textContent = '-' + formatTime(d);
-    seekBar.max            = d;
+    durationL.textContent   = formatTime(d);
+    remainingL.textContent  = '-' + formatTime(d);
+    seekBar.max             = d;
   });
   audioEl.addEventListener('timeupdate', function() {
     var t = Math.floor(audioEl.currentTime);
@@ -111,47 +121,56 @@ document.addEventListener('DOMContentLoaded', function() {
   playBtn.addEventListener('click', function(e) {
     e.stopPropagation();
     if (audioEl.paused) {
-      audioEl.play();
-      playBtn.textContent = '❚❚';
+      audioEl.play(); playBtn.textContent = '❚❚';
     } else {
-      audioEl.pause();
-      playBtn.textContent = '▶';
+      audioEl.pause(); playBtn.textContent = '▶';
     }
   });
 
   trigger.addEventListener('click', function() {
-    // 1) Contrôle du plan
-    if (!allowed.includes(plan)) {
-      // message de refus
-      var msg = "Seuls les abonnés aux forfaits Le tout compris et L'ultime ont accès aux versions audio.";
-      if (plan === 'L\'essentiel' || plan === 'L\'essentiel numérique') {
-        msg += ' <a href="/abonnement">Modifiez votre forfait</a>.';
-      } else {
-        msg += ' <a href="/abonnement">Abonnez-vous</a>.';
+    // Détection du forfait via dataLayer
+    var plan = null;
+    if (window.dataLayer && Array.isArray(window.dataLayer)) {
+      for (var i = window.dataLayer.length - 1; i >= 0; i--) {
+        var evt = window.dataLayer[i];
+        if (evt && evt.subscription_plan) { plan = evt.subscription_plan; break; }
       }
-      textEl.innerHTML    = msg;
-      textEl.style.color  = '#D51D2C';
-      durationL.style.display      = 'none';
-      trigger.style.pointerEvents  = 'none';
+    }
+    // Fallback sur le conteneur DOM si présent
+    if (!plan && document.getElementById('subscription-plan-display')) {
+      var txt = document.getElementById('subscription-plan-display').textContent;
+      plan = txt.replace(/^Forfait\s*:\s*/, '');
+    }
+    plan = (plan || 'No subscription plan found').replace(/[‘’]/g, "'");
+    console.log('Detected plan:', plan);
+
+    if (!allowed.includes(plan)) {
+      var linkUrl = window.location.origin +
+        '/abonnement?utm_campaign=link-lecteur-audio-' + storyId;
+      var actionText = (plan === "L'essentiel" || plan === "L'essentiel numérique")
+        ? 'Modifiez votre forfait' : 'Abonnez-vous';
+      textEl.innerHTML =
+        "Seuls les abonnés aux forfaits Le tout compris et L'ultime ont accès aux versions audio. " +
+        '<a href="' + linkUrl + '">' + actionText + '</a>.';
+      durationL.style.display = 'none';
       return;
     }
-    // 2) Plan autorisé → tentative de lecture
+
+    // Lecture autorisée
     audioEl.play().then(function() {
       trigger.style.display = 'none';
       player.style.display  = 'inline-flex';
       playBtn.textContent   = '❚❚';
     }).catch(function() {
-      // échec technique (mp3 manquant, CORS…)
-      durationL.style.display = 'none';
       textEl.textContent      = "La version audio de l'article n'est pas disponible";
       textEl.style.color      = "#D51D2C";
-      trigger.style.pointerEvents = 'none';
+      durationL.style.display = 'none';
     });
   });
-
-  function formatTime(sec) {
-    var m = Math.floor(sec/60), s = sec % 60;
-    return m + ':' + (s < 10 ? '0'+s : s);
-  }
 });
+
+function formatTime(sec) {
+  var m = Math.floor(sec/60), s = sec % 60;
+  return m + ':' + (s < 10 ? '0'+s : s);
+}
 </script>
