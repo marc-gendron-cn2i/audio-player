@@ -23,7 +23,8 @@
     position: relative;
     line-height: 28px;
     font-family: 'Red Hat Display', sans-serif;
-    padding-bottom: 24px; /* espace si multiline */
+padding-bottom: 24px; /* espace sous l'élément */
+    margin-bottom: 24px; /* espace sous l'élément */
   }
   .audio-trigger, .audio-player {
     position: absolute;
@@ -102,12 +103,19 @@ document.addEventListener('DOMContentLoaded', function() {
   if (!storyId) return;
   audioEl.src = 'https://versions-audio-ue1.s3.us-east-1.amazonaws.com/audio/' + storyId + '.mp3';
 
+  // Flag de disponibilité audio
+  var audioAvailable = true;
+  audioEl.addEventListener('error', function() {
+    audioAvailable = false;
+  });
+
   // Métadonnées & progression
   audioEl.addEventListener('loadedmetadata', function() {
     var d = Math.round(audioEl.duration);
     durationL.textContent   = formatTime(d);
     remainingL.textContent  = '-' + formatTime(d);
     seekBar.max             = d;
+    audioAvailable = true;
   });
   audioEl.addEventListener('timeupdate', function() {
     var t = Math.floor(audioEl.currentTime);
@@ -115,6 +123,8 @@ document.addEventListener('DOMContentLoaded', function() {
     remainingL.textContent  = '-' + formatTime(Math.round(audioEl.duration - t));
     seekBar.value           = t;
   });
+
+  // Contrôle seek et play/pause
   seekBar.addEventListener('input', function() {
     audioEl.currentTime = this.value;
   });
@@ -136,14 +146,15 @@ document.addEventListener('DOMContentLoaded', function() {
         if (evt && evt.subscription_plan) { plan = evt.subscription_plan; break; }
       }
     }
-    // Fallback sur le conteneur DOM si présent
-    if (!plan && document.getElementById('subscription-plan-display')) {
-      var txt = document.getElementById('subscription-plan-display').textContent;
-      plan = txt.replace(/^Forfait\s*:\s*/, '');
+    // Fallback DOM
+    if (!plan) {
+      var disp = document.getElementById('subscription-plan-display');
+      if (disp) plan = disp.textContent.replace(/^Forfait\s*:\s*/, '');
     }
     plan = (plan || 'No subscription plan found').replace(/[‘’]/g, "'");
     console.log('Detected plan:', plan);
 
+    // Vérifie abonnement
     if (!allowed.includes(plan)) {
       var linkUrl = window.location.origin +
         '/abonnement?utm_campaign=link-lecteur-audio-' + storyId;
@@ -156,11 +167,19 @@ document.addEventListener('DOMContentLoaded', function() {
       return;
     }
 
+    // Vérifie disponibilité audio
+    if (!audioAvailable) {
+      textEl.textContent      = "La version audio de l'article n'est pas disponible";
+      textEl.style.color      = "#D51D2C";
+      durationL.style.display = 'none';
+      return;
+    }
+
     // Lecture autorisée
     audioEl.play().then(function() {
-      trigger.style.display = 'none';
-      player.style.display  = 'inline-flex';
-      playBtn.textContent   = '❚❚';
+      trigger.style.display  = 'none';
+      player.style.display   = 'inline-flex';
+      playBtn.textContent    = '❚❚';
     }).catch(function() {
       textEl.textContent      = "La version audio de l'article n'est pas disponible";
       textEl.style.color      = "#D51D2C";
